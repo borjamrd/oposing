@@ -11,9 +11,10 @@ export function TranscriptionResult({ text }: TranscriptionResultProps) {
     <div className="rounded-lg bg-muted p-6 text-left">
       <Typewriter
         options={{
-          string: text,
+          strings: text,
           autoStart: true,
-          delay: 50,
+          delay: 5,
+          
         }}
       />
     </div>

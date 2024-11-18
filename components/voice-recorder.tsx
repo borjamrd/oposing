@@ -1,16 +1,27 @@
 "use client";
 
-import { useState } from "react";
-import { Mic, Square, Loader2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { Mic, Square, Loader2, Camera } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TranscriptionResult } from "@/components/transcription-result";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "./ui/accordion";
 
 export function VoiceRecorder() {
   const [isRecording, setIsRecording] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [transcription, setTranscription] = useState("");
-  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(
+    null
+  );
   const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewed, setReviewed] = useState(false);
+  const [revision, setRevision] = useState("");
 
   const startRecording = async () => {
     try {
@@ -25,6 +36,7 @@ export function VoiceRecorder() {
 
       recorder.onstop = async () => {
         const audioBlob = new Blob(audioChunks, { type: "audio/wav" });
+        // const flacBlob = await convertToFlac(audioBlob);
         await handleTranscription(audioBlob);
       };
 
@@ -46,23 +58,57 @@ export function VoiceRecorder() {
 
   const handleTranscription = async (audioBlob: Blob) => {
     try {
-      const formData = new FormData();
-      formData.append("audio", audioBlob);
+      const base64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === "string") {
+            resolve(reader.result);
+          }
+        };
+        reader.readAsDataURL(audioBlob);
+      });
 
       const response = await fetch("/api/transcribe", {
         method: "POST",
-        body: formData,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          audio: base64,
+        }),
       });
 
       if (!response.ok) throw new Error("Transcription failed");
-
       const data = await response.json();
       setTranscription(data.text);
+      handleRevision(data.text);
     } catch (error) {
-      console.error("Transcription error:", error);
       setTranscription("Error during transcription. Please try again.");
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  const handleRevision = async (transcription: string) => {
+    setReviewing(true);
+    setReviewed(false);
+    try {
+      const response = await fetch("/api/revision", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(transcription),
+      });
+
+      if (!response.ok) throw new Error("Revision failed");
+      const data = await response.json();
+      setRevision(data.text);
+    } catch (error) {
+      setRevision("Error during revision. Please try again.");
+    } finally {
+      setReviewed(true);
+      setReviewing(false);
     }
   };
 
@@ -72,16 +118,16 @@ export function VoiceRecorder() {
         <Button
           size="lg"
           variant={isRecording ? "destructive" : "default"}
-          className="h-16 w-16 rounded-full"
+          className="h-16 w-16 rounded-full p-0"
           onClick={isRecording ? stopRecording : startRecording}
           disabled={isAnalyzing}
         >
           {isRecording ? (
-            <Square className="h-6 w-6" />
+            <Square size={24} className="h-6 w-6" />
           ) : isAnalyzing ? (
-            <Loader2 className="h-6 w-6 animate-spin" />
+            <Loader2 size={24} className="h-24 w-24 animate-spin" />
           ) : (
-            <Mic className="h-6 w-6" />
+            <Mic size={24} color="blue" />
           )}
         </Button>
       </div>
@@ -98,8 +144,23 @@ export function VoiceRecorder() {
       )}
 
       {transcription && !isRecording && !isAnalyzing && (
-        <TranscriptionResult text={transcription} />
+        <div className="flex flex-col gap-2">
+          <Accordion defaultValue="revision" type="single" collapsible>
+            <AccordionItem value="transcription">
+              <AccordionTrigger className="text-lg font-semibold">
+                Transcription
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="rounded-lg bg-muted p-6 text-left">
+                  <p>{transcription}</p>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+            
+          </Accordion>
+        </div>
       )}
+      {reviewed && !isRecording && !isAnalyzing && ( <TranscriptionResult text={revision} />)}
     </div>
   );
 }
